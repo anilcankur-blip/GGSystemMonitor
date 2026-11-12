@@ -13,6 +13,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Drawing;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -1245,7 +1246,8 @@ namespace GGSystemMonitor
 
         private static void SendToOledImageLines(string[] lines)
         {
-            var font = _oledFont ?? new Font("Consolas", 9, GraphicsUnit.Pixel);
+            var font = _oledFont;
+            if (font == null) return;
             const int W = OLED_IMAGE_WIDTH, H = OLED_IMAGE_HEIGHT;
             var bytes = new byte[W * H / 8];
 
