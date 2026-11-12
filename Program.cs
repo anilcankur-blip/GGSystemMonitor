@@ -1204,23 +1204,43 @@ namespace GGSystemMonitor
         }
         private static void BuildAndSendDisplay()
         {
-            string line1, line2;
+            // Keep update notifications, but use a fixed three-row dashboard for normal operation.
             if (AvailableVersion != null && settings.ShowUpdateNotifications && _updateNotifCycle >= 10000)
             {
                 bool capsLock = settings.ShowCapsLockIndicator && capsLockToggled;
-                line1 = capsLock ? AppendCapsLockIndicator("Update") : "Update";
-                line2 = "Available!";
+                string line1 = capsLock ? AppendCapsLockIndicator("Update") : "Update";
+                SendToOledImage(line1, "Available!");
+                return;
             }
-            else
-            {
-                line1 = BuildTopLine();
-                line2 = BuildBottomLine();
-            }
-            if (_oledFont != null) SendToOledImage(line1, line2);
-            else                   SendToOled(line1, line2);
+
+            string cpuUsage = cachedCpuUsage.HasValue
+                ? Math.Round(cachedCpuUsage.Value).ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                : "--";
+            string cpuTemp = cachedCpuTemp.HasValue
+                ? Math.Round(cachedCpuTemp.Value).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "°C"
+                : "--°C";
+            string gpuUsage = cachedGpuUsage.HasValue
+                ? Math.Round(cachedGpuUsage.Value).ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                : "--";
+            string gpuTemp = cachedGpuTemp.HasValue
+                ? Math.Round(cachedGpuTemp.Value).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "°C"
+                : "--°C";
+
+            string ramUsage = "--";
+            string ramUsed = cachedRamUsed.HasValue
+                ? cachedRamUsed.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " GB"
+                : "--";
+            if (cachedRamUsed.HasValue && cachedRamTotal.HasValue && cachedRamTotal.Value > 0)
+                ramUsage = Math.Round(cachedRamUsed.Value / cachedRamTotal.Value * 100.0)
+                    .ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+            SendToOledImage(
+                $"CPU: %{cpuUsage}  –  {cpuTemp}",
+                $"GPU: %{gpuUsage}  –  {gpuTemp}",
+                $"RAM: %{ramUsage}  –  {ramUsed}");
         }
 
-        private static void SendToOledImage(string line1, string line2)
+        private static void SendToOledImage(string line1, string line2, string line3 = null)
         {
             var font = _oledFont;
             if (font == null) { SendToOled(line1, line2); return; }
@@ -1236,8 +1256,18 @@ namespace GGSystemMonitor
                     PrepareOledGraphics(g);
                     // Brushes.White is a shared cached singleton — using `new SolidBrush(...)`
                     // here would allocate a fresh GDI+ brush handle on every frame (4Hz).
-                    DrawOledImageLine(g, font, Brushes.White, line1, 0);
-                    DrawOledImageLine(g, font, Brushes.White, line2, H / 2f);
+                    if (line3 != null)
+                    {
+                        // Three evenly spaced rows for the Apex 5 128x40 OLED.
+                        g.DrawString(line1 ?? "", font, Brushes.White, new PointF(1, 0));
+                        g.DrawString(line2 ?? "", font, Brushes.White, new PointF(1, 13));
+                        g.DrawString(line3, font, Brushes.White, new PointF(1, 26));
+                    }
+                    else
+                    {
+                        DrawOledImageLine(g, font, Brushes.White, line1, 0);
+                        DrawOledImageLine(g, font, Brushes.White, line2, H / 2f);
+                    }
                 }
 
                 // Scan pixels via a single LockBits instead of 5120 per-pixel GetPixel calls.
@@ -1657,17 +1687,12 @@ namespace GGSystemMonitor
                 OledFontWidthCache.Clear();
                 OledFontAdvanceCache.Clear();
             }
-            if (string.IsNullOrEmpty(fontName))
-            {
-                _oledFont   = null;
-                SCREEN_COLS = DEFAULT_SCREEN_COLS;
-            }
-            else
-            {
-                var newFont = new Font(fontName, 14, GraphicsUnit.Pixel);
-                _oledFont = newFont;
-                SCREEN_COLS = DEFAULT_SCREEN_COLS;
-            }
+            // The custom Apex 5 dashboard always uses the 128x40 image path.
+            // A compact 10px font leaves room for three readable rows.
+            if (string.IsNullOrEmpty(fontName)) fontName = "Consolas";
+            var newFont = new Font(fontName, 10, GraphicsUnit.Pixel);
+            _oledFont = newFont;
+            SCREEN_COLS = DEFAULT_SCREEN_COLS;
             old?.Dispose();
         }
 
