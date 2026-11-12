@@ -1204,27 +1204,48 @@ namespace GGSystemMonitor
         }
         private static void BuildAndSendDisplay()
         {
-            string line1, line2;
-            if (AvailableVersion != null && settings.ShowUpdateNotifications && _updateNotifCycle >= 10000)
-            {
-                bool capsLock = settings.ShowCapsLockIndicator && capsLockToggled;
-                line1 = capsLock ? AppendCapsLockIndicator("Update") : "Update";
-                line2 = "Available!";
-            }
-            else
-            {
-                line1 = BuildTopLine();
-                line2 = BuildBottomLine();
-            }
-            if (_oledFont != null) SendToOledImage(line1, line2);
-            else                   SendToOled(line1, line2);
+            // Fixed three-row Apex 5 dashboard. Keep the existing hardware
+            // polling/cache and SteelSeries GameSense transport unchanged.
+            string cpuUsage = cachedCpuUsage.HasValue
+                ? Math.Round(cachedCpuUsage.Value).ToString("0", CultureInfo.InvariantCulture)
+                : "--";
+            string gpuUsage = cachedGpuUsage.HasValue
+                ? Math.Round(cachedGpuUsage.Value).ToString("0", CultureInfo.InvariantCulture)
+                : "--";
+            string cpuTemp = cachedCpuTemp.HasValue
+                ? Math.Round(cachedCpuTemp.Value).ToString("0", CultureInfo.InvariantCulture)
+                : "--";
+            string gpuTemp = cachedGpuTemp.HasValue
+                ? Math.Round(cachedGpuTemp.Value).ToString("0", CultureInfo.InvariantCulture)
+                : "--";
+
+            string ramUsed = cachedRamUsed.HasValue
+                ? cachedRamUsed.Value.ToString("0.#", CultureInfo.InvariantCulture)
+                : "--";
+            string ramUsage = cachedRamUsed.HasValue && cachedRamTotal.HasValue && cachedRamTotal.Value > 0
+                ? Math.Round(cachedRamUsed.Value / cachedRamTotal.Value * 100.0).ToString("0", CultureInfo.InvariantCulture)
+                : "--";
+
+            string line1 = $"CPU: %{cpuUsage.PadLeft(2)}  –  {cpuTemp.PadLeft(3)}°C";
+            string line2 = $"GPU: %{gpuUsage.PadLeft(2)}  –  {gpuTemp.PadLeft(3)}°C";
+            string line3 = $"RAM: %{ramUsage.PadLeft(2)}  –  {ramUsed.PadLeft(4)} GB";
+
+            SendToOledImage(line1, line2, line3);
         }
 
         private static void SendToOledImage(string line1, string line2)
         {
-            var font = _oledFont;
-            if (font == null) { SendToOled(line1, line2); return; }
+            SendToOledImageLines(new[] { line1, line2 });
+        }
 
+        private static void SendToOledImage(string line1, string line2, string line3)
+        {
+            SendToOledImageLines(new[] { line1, line2, line3 });
+        }
+
+        private static void SendToOledImageLines(string[] lines)
+        {
+            var font = _oledFont ?? new Font("Consolas", 9, GraphicsUnit.Pixel);
             const int W = OLED_IMAGE_WIDTH, H = OLED_IMAGE_HEIGHT;
             var bytes = new byte[W * H / 8];
 
@@ -1234,10 +1255,9 @@ namespace GGSystemMonitor
                 using (var g = Graphics.FromImage(bmp))
                 {
                     PrepareOledGraphics(g);
-                    // Brushes.White is a shared cached singleton — using `new SolidBrush(...)`
-                    // here would allocate a fresh GDI+ brush handle on every frame (4Hz).
-                    DrawOledImageLine(g, font, Brushes.White, line1, 0);
-                    DrawOledImageLine(g, font, Brushes.White, line2, H / 2f);
+                    float rowHeight = (float)H / lines.Length;
+                    for (int i = 0; i < lines.Length; i++)
+                        DrawOledGridLine(g, font, Brushes.White, lines[i], i * rowHeight, rowHeight);
                 }
 
                 // Scan pixels via a single LockBits instead of 5120 per-pixel GetPixel calls.
@@ -1278,6 +1298,17 @@ namespace GGSystemMonitor
             }
 
             PostJsonText("/game_event", BuildImageEventJson(bytes));
+        }
+
+        private static void DrawOledGridLine(Graphics g, Font font, Brush brush, string line, float y, float rowHeight)
+        {
+            using (var format = CreateOledStringFormat())
+            {
+                float textHeight = font.GetHeight(g);
+                float top = y + Math.Max(0f, (rowHeight - textHeight) / 2f);
+                var bounds = new RectangleF(0, top, OLED_IMAGE_WIDTH, Math.Min(rowHeight, textHeight + 1f));
+                DrawTextFittedToBounds(g, font, brush, line ?? "", bounds, format, false);
+            }
         }
 
         private static void PrepareOledGraphics(Graphics g)
@@ -1650,24 +1681,27 @@ namespace GGSystemMonitor
 
         private static void UpdateOledFont()
         {
-            string fontName = settings?.OledFont ?? "";
+            // Apex 5 three-row layout needs the 128x40 bitmap path even when
+            // the optional custom OLED font setting is empty. Consolas keeps
+            // the metric columns aligned consistently.
+            const string fontName = "Consolas";
             var old = _oledFont;
             lock (OledFontMeasureLock)
             {
                 OledFontWidthCache.Clear();
                 OledFontAdvanceCache.Clear();
             }
-            if (string.IsNullOrEmpty(fontName))
+
+            try
             {
-                _oledFont   = null;
-                SCREEN_COLS = DEFAULT_SCREEN_COLS;
+                _oledFont = new Font(fontName, 9, GraphicsUnit.Pixel);
             }
-            else
+            catch
             {
-                var newFont = new Font(fontName, 14, GraphicsUnit.Pixel);
-                _oledFont = newFont;
-                SCREEN_COLS = DEFAULT_SCREEN_COLS;
+                _oledFont = new Font("Arial", 9, GraphicsUnit.Pixel);
             }
+
+            SCREEN_COLS = DEFAULT_SCREEN_COLS;
             old?.Dispose();
         }
 
