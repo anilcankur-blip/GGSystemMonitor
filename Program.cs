@@ -153,12 +153,12 @@ namespace GGSystemMonitor
 
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
-                try { SendToOled("GGSystemMonitor", "Waiting..."); } catch { }
+                try { if (_oledFont != null) SendToOledImage("GGSystemMonitor", "Waiting..."); else SendToOled("GGSystemMonitor", "Waiting..."); } catch { }
                 try { _computer?.Close(); } catch { }
             };
             Microsoft.Win32.SystemEvents.SessionEnding += (s, e) =>
             {
-                try { SendToOled("GGSystemMonitor", "Waiting..."); } catch { }
+                try { if (_oledFont != null) SendToOledImage("GGSystemMonitor", "Waiting..."); else SendToOled("GGSystemMonitor", "Waiting..."); } catch { }
             };
 
             try
